@@ -5,11 +5,6 @@ A [Prometheus](prometheus.io) exporter that translates between Prometheus and [H
 It is implemented in a very similar way to [blackbox_exporter](https://github.com/prometheus/blackbox_exporter) which allows you to run it
 as a "proxy" querying the power meter on the go and returns specific metrics for that power meter using targets and relabeling.
 
-## Tested with
-
-- Avatar UK 10A
-- Athom Plug V2
-
 ## Configuration
 
 homewizard-p1-exporter does not need any configuration itself, and the seperation of power meter are fully hosted in the Prometheus
