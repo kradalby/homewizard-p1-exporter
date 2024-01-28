@@ -73,7 +73,11 @@ func homewizardHandler(w http.ResponseWriter, r *http.Request) {
 	h.ServeHTTP(w, r)
 }
 
-func probeHomewizard(ctx context.Context, target string, registry *prometheus.Registry) (success bool) {
+func probeHomewizard(
+	ctx context.Context,
+	target string,
+	registry *prometheus.Registry,
+) (success bool) {
 	wifiStrengthGauge := prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "homewizard_wifi_strength_decibels",
 		Help: "strength of WIFI signal for homewizard in decibels",
@@ -122,7 +126,7 @@ func probeHomewizard(ctx context.Context, target string, registry *prometheus.Re
 
 	resp, err := client.Get(fmt.Sprintf("http://%s/api/v1/data", target))
 	if err != nil || resp.StatusCode != http.StatusOK {
-		log.Printf("failed to query homewizard target (%s): %s, status: %d", target, err, resp.StatusCode)
+		log.Printf("failed to query homewizard target (%s): %s, resp: %v", target, err, resp)
 		return false
 	}
 
