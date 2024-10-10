@@ -28,7 +28,7 @@
 
           subPackage = ["cmd/homewizard-p1-exporter"];
 
-          vendorHash = "sha256-LUHMUtClxEnizfxWmpMXSZA48f8ysNozuU5Gp4khMxI=";
+          vendorHash = "sha256-yTyyYLHbyMeZFH3QXNU3KN/umNBc/aRJGOtFKgX7cZI=";
         };
       };
     }
