@@ -21,15 +21,16 @@
       overlay = _: prev: let
         pkgs = nixpkgs.legacyPackages.${prev.system};
       in {
-        homewizard-p1-exporter = pkgs.buildGoModule {
-          pname = "homewizard-p1-exporter";
-          version = homewizard-p1-exporterVersion;
-          src = pkgs.nix-gitignore.gitignoreSource [] ./.;
+        homewizard-p1-exporter = pkgs.callPackage ({buildGoModule}:
+          buildGoModule {
+            pname = "homewizard-p1-exporter";
+            version = homewizard-p1-exporterVersion;
+            src = pkgs.nix-gitignore.gitignoreSource [] ./.;
 
-          subPackage = ["cmd/homewizard-p1-exporter"];
+            subPackage = ["cmd/homewizard-p1-exporter"];
 
-          vendorHash = "sha256-yTyyYLHbyMeZFH3QXNU3KN/umNBc/aRJGOtFKgX7cZI=";
-        };
+            vendorHash = "sha256-yTyyYLHbyMeZFH3QXNU3KN/umNBc/aRJGOtFKgX7cZI=";
+          }) {};
       };
     }
     // utils.lib.eachDefaultSystem
