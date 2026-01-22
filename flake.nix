@@ -18,14 +18,12 @@
       else "dev";
   in
     {
-      overlay = _: prev: let
-        pkgs = nixpkgs.legacyPackages.${prev.system};
-      in {
-        homewizard-p1-exporter = pkgs.callPackage ({buildGoModule}:
+      overlay = _: prev: {
+        homewizard-p1-exporter = prev.callPackage ({buildGoModule}:
           buildGoModule {
             pname = "homewizard-p1-exporter";
             version = homewizard-p1-exporterVersion;
-            src = pkgs.nix-gitignore.gitignoreSource [] ./.;
+            src = prev.nix-gitignore.gitignoreSource [] ./.;
 
             subPackage = ["cmd/homewizard-p1-exporter"];
 
