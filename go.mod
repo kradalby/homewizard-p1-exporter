@@ -1,8 +1,6 @@
 module github.com/kradalby/homewizard-p1-exporter
 
-go 1.23.1
-
-toolchain go1.23.2
+go 1.25
 
 require (
 	github.com/prometheus/client_golang v1.20.4
