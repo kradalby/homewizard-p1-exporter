@@ -18,14 +18,16 @@
       else "dev";
   in
     {
-      overlay = _: prev: {
-        homewizard-p1-exporter = prev.callPackage ({buildGoModule}:
+      overlays.default = _: prev: let
+        pkgs = nixpkgs.legacyPackages.${prev.stdenv.hostPlatform.system};
+      in {
+        homewizard-p1-exporter = pkgs.callPackage ({buildGoModule}:
           buildGoModule {
             pname = "homewizard-p1-exporter";
             version = homewizard-p1-exporterVersion;
-            src = prev.nix-gitignore.gitignoreSource [] ./.;
+            src = pkgs.nix-gitignore.gitignoreSource [] ./.;
 
-            subPackage = ["cmd/homewizard-p1-exporter"];
+            subPackages = ["cmd/homewizard-p1-exporter"];
 
             vendorHash = "sha256-yTyyYLHbyMeZFH3QXNU3KN/umNBc/aRJGOtFKgX7cZI=";
           }) {};
@@ -34,7 +36,7 @@
     // utils.lib.eachDefaultSystem
     (system: let
       pkgs = import nixpkgs {
-        overlays = [self.overlay];
+        overlays = [self.overlays.default];
         inherit system;
       };
       buildDeps = with pkgs; [
@@ -47,31 +49,28 @@
         ++ [
           golangci-lint
           entr
-          nodePackages.tailwindcss
         ];
-    in rec {
+    in {
       # `nix develop`
-      devShell = pkgs.mkShell {
+      devShells.default = pkgs.mkShell {
         buildInputs = devDeps;
       };
 
       # `nix build`
       packages = with pkgs; {
         inherit homewizard-p1-exporter;
+        default = homewizard-p1-exporter;
       };
-
-      defaultPackage = pkgs.homewizard-p1-exporter;
 
       # `nix run`
       apps = {
         homewizard-p1-exporter = utils.lib.mkApp {
-          drv = packages.homewizard-p1-exporter;
+          drv = pkgs.homewizard-p1-exporter;
+        };
+        default = utils.lib.mkApp {
+          drv = pkgs.homewizard-p1-exporter;
         };
       };
-
-      defaultApp = apps.homewizard-p1-exporter;
-
-      overlays.default = self.overlay;
     })
     // {
       nixosModules.default = {
@@ -109,6 +108,7 @@
             '';
             wantedBy = ["multi-user.target"];
             after = ["network-online.target"];
+            wants = ["network-online.target"];
             serviceConfig = {
               DynamicUser = true;
               Restart = "always";
