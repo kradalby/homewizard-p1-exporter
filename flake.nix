@@ -21,15 +21,15 @@
       overlays.default = _: prev: let
         pkgs = nixpkgs.legacyPackages.${prev.stdenv.hostPlatform.system};
       in {
-        homewizard-p1-exporter = pkgs.callPackage ({buildGoModule}:
-          buildGoModule {
+        homewizard-p1-exporter = pkgs.callPackage ({buildGo126Module}:
+          buildGo126Module {
             pname = "homewizard-p1-exporter";
             version = homewizard-p1-exporterVersion;
             src = pkgs.nix-gitignore.gitignoreSource [] ./.;
 
             subPackages = ["cmd/homewizard-p1-exporter"];
 
-            vendorHash = "sha256-yTyyYLHbyMeZFH3QXNU3KN/umNBc/aRJGOtFKgX7cZI=";
+            vendorHash = "sha256-OMFCOokySFCGWXA2udvKroawSLHC4y4SHPM/wUpEhUg=";
           }) {};
       };
     }
@@ -42,7 +42,7 @@
       buildDeps = with pkgs; [
         git
         gnumake
-        go
+        go_1_26
       ];
       devDeps = with pkgs;
         buildDeps
