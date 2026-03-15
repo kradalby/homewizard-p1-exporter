@@ -83,7 +83,7 @@
       in {
         options = with lib; {
           services.homewizard-p1-exporter = {
-            enable = mkEnableOption "Enable homewizard-p1-exporter";
+            enable = mkEnableOption "homewizard-p1-exporter";
 
             package = mkOption {
               type = types.package;
