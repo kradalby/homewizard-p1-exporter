@@ -110,7 +110,6 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func homewizardHandler(w http.ResponseWriter, r *http.Request) {
-
 	params := r.URL.Query()
 
 	target := params.Get("target")
@@ -142,7 +141,6 @@ func probeHomewizard(
 	ctx context.Context,
 	target string,
 ) (success bool) {
-
 	client := http.Client{
 		Timeout: 5 * time.Second,
 	}
