@@ -106,7 +106,7 @@ func main() {
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "ok")
+	_, _ = fmt.Fprint(w, "ok")
 }
 
 func homewizardHandler(w http.ResponseWriter, r *http.Request) {
