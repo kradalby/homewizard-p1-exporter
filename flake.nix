@@ -6,6 +6,7 @@
     flake-utils.url = "github:numtide/flake-utils";
     flake-checks.url = "github:kradalby/flake-checks";
     flake-checks.inputs.nixpkgs.follows = "nixpkgs";
+    flake-checks.inputs.flake-utils.follows = "flake-utils";
   };
 
   outputs =
@@ -20,6 +21,7 @@
         if (self ? shortRev)
         then self.shortRev
         else "dev";
+      vendorHash = "sha256-ptsMn5plnSLvfbbiDMBmshlBNiUHGVKHU3Ex/2vly3s=";
     in
     {
       overlays.default = _: prev:
@@ -36,7 +38,7 @@
 
                 subPackages = [ "cmd/homewizard-p1-exporter" ];
 
-                vendorHash = "sha256-ptsMn5plnSLvfbbiDMBmshlBNiUHGVKHU3Ex/2vly3s=";
+                inherit vendorHash;
               })
             { };
         };
@@ -54,18 +56,20 @@
           root = ./.;
           pname = "homewizard-p1-exporter";
           version = homewizard-p1-exporterVersion;
-          vendorHash = "sha256-ptsMn5plnSLvfbbiDMBmshlBNiUHGVKHU3Ex/2vly3s=";
+          inherit vendorHash;
           goPkg = pkgs.go_1_26;
         };
         buildDeps = with pkgs; [
           git
-          gnumake
           go_1_26
         ];
         devDeps = with pkgs;
           buildDeps
           ++ [
             golangci-lint
+            gofumpt
+            gopls
+            prek
             entr
           ];
       in
