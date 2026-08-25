@@ -21,26 +21,35 @@
         if (self ? shortRev)
         then self.shortRev
         else "dev";
-      vendorHash = "sha256-ptsMn5plnSLvfbbiDMBmshlBNiUHGVKHU3Ex/2vly3s=";
+      vendorHash = "sha256-FLvcg4xeKpZLSGY8wsWpHV7SFRRtxo9kRz9d/LMvi+A=";
     in
     {
       overlays.default = _: prev:
         let
           pkgs = nixpkgs.legacyPackages.${prev.stdenv.hostPlatform.system};
+          # buildGoLatestModule, not buildGo127Module: this tracks whatever the
+          # newest Go in nixpkgs is, so the next bump is a nixpkgs update only.
+          # Bare buildGoModule still resolves to the older default.
+          buildGo = pkgs.buildGoLatestModule;
         in
         {
-          homewizard-p1-exporter = pkgs.callPackage
-            ({ buildGo126Module }:
-              buildGo126Module {
-                pname = "homewizard-p1-exporter";
-                version = homewizard-p1-exporterVersion;
-                src = pkgs.nix-gitignore.gitignoreSource [ ] ./.;
+          homewizard-p1-exporter = buildGo {
+            pname = "homewizard-p1-exporter";
+            version = homewizard-p1-exporterVersion;
+            src = pkgs.nix-gitignore.gitignoreSource [ ] ./.;
 
-                subPackages = [ "cmd/homewizard-p1-exporter" ];
+            subPackages = [ "cmd/homewizard-p1-exporter" ];
 
-                inherit vendorHash;
-              })
-            { };
+            inherit vendorHash;
+          };
+
+          # Rebuild the Go dev tools against the latest Go so everything agrees
+          # on one version. golangci-lint and gopls already track it upstream.
+          gofumpt = prev.gofumpt.override { buildGoModule = buildGo; };
+          # goimports ships wrapped with a `go` on PATH. That `go` must be at
+          # least the go.mod directive, or GOTOOLCHAIN=auto tries to fetch a
+          # toolchain from inside the network-less treefmt sandbox.
+          gotools = prev.gotools.override { buildGoModule = buildGo; go = pkgs.go_latest; };
         };
     }
     // flake-utils.lib.eachDefaultSystem
@@ -57,11 +66,11 @@
           pname = "homewizard-p1-exporter";
           version = homewizard-p1-exporterVersion;
           inherit vendorHash;
-          goPkg = pkgs.go_1_26;
+          goPkg = pkgs.go_latest;
         };
         buildDeps = with pkgs; [
           git
-          go_1_26
+          go_latest
         ];
         devDeps = with pkgs;
           buildDeps
