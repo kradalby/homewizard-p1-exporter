@@ -145,15 +145,33 @@ func probeHomewizard(
 		Timeout: 5 * time.Second,
 	}
 
-	resp, err := client.Get(fmt.Sprintf("http://%s/api/v1/data", target))
-	if err != nil || resp.StatusCode != http.StatusOK {
-		log.Printf("failed to query homewizard target (%s): %s, resp: %v", target, err, resp)
+	url := fmt.Sprintf("http://%s/api/v1/data", target)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		log.Printf("failed to build request for homewizard target (%s): %s", target, err)
+		return false
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("failed to query homewizard target (%s): %s", target, err)
+		return false
+	}
+	// Close before inspecting the status: the non-200 path used to return
+	// without ever touching the body, leaking a connection, an fd and a
+	// readLoop goroutine on every scrape. Go 1.27's Close drains the unread
+	// remainder itself, so a bare Close now suffices to keep the connection
+	// reusable - no io.Copy(io.Discard, ...) needed.
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("homewizard target (%s) returned status: %s", target, resp.Status)
 		return false
 	}
 
 	var p1 P1
-	err = json.NewDecoder(resp.Body).Decode(&p1)
-	if err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&p1); err != nil {
 		log.Printf("failed to unmarshall data from homewizard target (%s): %s", target, err)
 		return false
 	}
