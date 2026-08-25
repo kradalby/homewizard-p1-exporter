@@ -10,21 +10,20 @@
   };
 
   outputs =
-    { self
-    , nixpkgs
-    , flake-utils
-    , flake-checks
-    , ...
+    {
+      self,
+      nixpkgs,
+      flake-utils,
+      flake-checks,
+      ...
     }:
     let
-      homewizard-p1-exporterVersion =
-        if (self ? shortRev)
-        then self.shortRev
-        else "dev";
+      homewizard-p1-exporterVersion = if (self ? shortRev) then self.shortRev else "dev";
       vendorHash = "sha256-HKQi/osXSCAVtEdMRkRxf/e7WpvB020ZSIscZdvzKTc=";
     in
     {
-      overlays.default = _: prev:
+      overlays.default =
+        _: prev:
         let
           pkgs = nixpkgs.legacyPackages.${prev.stdenv.hostPlatform.system};
           # buildGoLatestModule, not buildGo127Module: this tracks whatever the
@@ -49,11 +48,14 @@
           # goimports ships wrapped with a `go` on PATH. That `go` must be at
           # least the go.mod directive, or GOTOOLCHAIN=auto tries to fetch a
           # toolchain from inside the network-less treefmt sandbox.
-          gotools = prev.gotools.override { buildGoModule = buildGo; go = pkgs.go_latest; };
+          gotools = prev.gotools.override {
+            buildGoModule = buildGo;
+            go = pkgs.go_latest;
+          };
         };
     }
-    // flake-utils.lib.eachDefaultSystem
-      (system:
+    // flake-utils.lib.eachDefaultSystem (
+      system:
       let
         pkgs = import nixpkgs {
           overlays = [ self.overlays.default ];
@@ -72,7 +74,8 @@
           git
           go_latest
         ];
-        devDeps = with pkgs;
+        devDeps =
+          with pkgs;
           buildDeps
           ++ [
             golangci-lint
@@ -112,13 +115,15 @@
             drv = pkgs.homewizard-p1-exporter;
           };
         };
-      })
+      }
+    )
     // {
       nixosModules.default =
-        { pkgs
-        , lib
-        , config
-        , ...
+        {
+          pkgs,
+          lib,
+          config,
+          ...
         }:
         let
           cfg = config.services.homewizard-p1-exporter;
