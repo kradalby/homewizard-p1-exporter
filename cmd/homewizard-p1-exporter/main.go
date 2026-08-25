@@ -130,6 +130,7 @@ func homewizardHandler(w http.ResponseWriter, r *http.Request) {
 		probeSuccessGauge.Set(1)
 		log.Printf("%s: probe succeeded, duration: %fs", target, duration)
 	} else {
+		probeSuccessGauge.Set(0)
 		log.Printf("%s: probe failed, duration: %fs", target, duration)
 	}
 
