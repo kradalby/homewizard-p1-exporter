@@ -109,14 +109,17 @@
         };
 
         # `nix run`
-        apps = {
-          homewizard-p1-exporter = flake-utils.lib.mkApp {
-            drv = pkgs.homewizard-p1-exporter;
+        apps =
+          let
+            # mkApp drops meta, and `nix flake check` warns on apps without it.
+            app = flake-utils.lib.mkApp { drv = pkgs.homewizard-p1-exporter; } // {
+              meta.description = "Run the Homewizard P1 Prometheus exporter";
+            };
+          in
+          {
+            homewizard-p1-exporter = app;
+            default = app;
           };
-          default = flake-utils.lib.mkApp {
-            drv = pkgs.homewizard-p1-exporter;
-          };
-        };
       }
     )
     // {
