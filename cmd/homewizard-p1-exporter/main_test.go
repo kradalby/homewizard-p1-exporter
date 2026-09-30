@@ -9,8 +9,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-
-	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 const p1Body = `{
@@ -67,29 +65,55 @@ func newTargetServer(t *testing.T, handler http.HandlerFunc) (*httptest.Server, 
 	}
 }
 
-func TestProbeHomewizardSetsGauges(t *testing.T) {
+// scrape runs one /probe request and returns the exported samples by name.
+// Errorf, not Fatalf: it is also called from non-test goroutines.
+func scrape(t *testing.T, target string) map[string]string {
+	t.Helper()
+
+	rec := httptest.NewRecorder()
+	homewizardHandler(rec, httptest.NewRequest(http.MethodGet, "/probe?target="+url.QueryEscape(target), nil))
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("scrape of %q: status %d, want 200", target, rec.Code)
+	}
+
+	samples := map[string]string{}
+	for line := range strings.Lines(rec.Body.String()) {
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		if name, value, ok := strings.Cut(strings.TrimSpace(line), " "); ok {
+			samples[name] = value
+		}
+	}
+
+	return samples
+}
+
+func TestHandlerExportsReadings(t *testing.T) {
 	srv, _ := newTargetServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = fmt.Fprint(w, p1Body)
 	})
 
-	if !probeHomewizard(t.Context(), hostOf(t, srv.URL)) {
-		t.Fatal("probeHomewizard returned false for a healthy target")
-	}
+	got := scrape(t, hostOf(t, srv.URL))
 
-	for _, tc := range []struct {
-		name string
-		got  float64
-		want float64
-	}{
-		{"active_power_w", testutil.ToFloat64(activePowerWattGauge), 1234.5},
-		{"active_power_l1_w", testutil.ToFloat64(activePowerL1WattGauge), 400},
-		{"wifi_strength", testutil.ToFloat64(wifiStrengthGauge), 84},
-		{"total_gas_m3", testutil.ToFloat64(totalGasGauge), 987.654},
-		{"long_power_fail_count", testutil.ToFloat64(longFailedGauge), 1},
+	for metric, want := range map[string]string{
+		"probe_success":                     "1",
+		"homewizard_wifi_strength_decibels": "84",
+		"homewizard_active_power_watts":     "1234.5",
+		"homewizard_active_power_l1_watts":  "400",
+		"homewizard_active_power_l2_watts":  "411",
+		"homewizard_active_power_l3_watts":  "423.5",
+		"homewizard_any_power_fail_count":   "3",
+		"homewizard_long_power_fail_count":  "1",
+		"homewizard_gas_m3_total":           "987.654",
 	} {
-		if tc.got != tc.want {
-			t.Errorf("%s = %v, want %v", tc.name, tc.got, tc.want)
+		if got[metric] != want {
+			t.Errorf("%s = %q, want %s", metric, got[metric], want)
 		}
+	}
+	if _, ok := got["probe_duration_seconds"]; !ok {
+		t.Error("probe_duration_seconds not exported")
 	}
 }
 
@@ -98,8 +122,8 @@ func TestProbeHomewizardMalformedJSON(t *testing.T) {
 		_, _ = fmt.Fprint(w, "{not json")
 	})
 
-	if probeHomewizard(t.Context(), hostOf(t, srv.URL)) {
-		t.Error("probeHomewizard returned true for a malformed body")
+	if _, err := probeHomewizard(t.Context(), hostOf(t, srv.URL)); err == nil {
+		t.Error("probeHomewizard succeeded on a malformed body")
 	}
 }
 
@@ -116,8 +140,8 @@ func TestProbeHomewizardNon200DoesNotLeakConnections(t *testing.T) {
 
 	target := hostOf(t, srv.URL)
 	for range probes {
-		if probeHomewizard(t.Context(), target) {
-			t.Fatal("probeHomewizard returned true for a 500 response")
+		if _, err := probeHomewizard(t.Context(), target); err == nil {
+			t.Fatal("probeHomewizard succeeded on a 500 response")
 		}
 	}
 
@@ -128,42 +152,50 @@ func TestProbeHomewizardNon200DoesNotLeakConnections(t *testing.T) {
 	}
 }
 
-// probe_success is the metric the whole exporter exists to serve. It used to be
-// set to 1 on success and simply left alone on failure, so it latched at 1
-// forever after the first good scrape and could never signal an outage.
-func TestHandlerResetsProbeSuccessOnFailure(t *testing.T) {
+// A failed probe must report probe_success 0 and no readings, least of all
+// those of a previously probed target.
+func TestHandlerFailureExportsNoReadings(t *testing.T) {
 	srv, _ := newTargetServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = fmt.Fprint(w, p1Body)
 	})
 
-	scrape := func(target string) string {
-		t.Helper()
-
-		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/probe?target="+url.QueryEscape(target), nil)
-		homewizardHandler(rec, req)
-
-		if rec.Code != http.StatusOK {
-			t.Fatalf("scrape of %q: status %d, want 200", target, rec.Code)
-		}
-
-		return rec.Body.String()
-	}
-
-	if body := scrape(hostOf(t, srv.URL)); !strings.Contains(body, "probe_success 1") {
-		t.Fatalf("healthy target did not report probe_success 1:\n%s", body)
+	if got := scrape(t, hostOf(t, srv.URL)); got["probe_success"] != "1" {
+		t.Fatalf("healthy target: probe_success = %q, want 1", got["probe_success"])
 	}
 
 	// 127.0.0.1:1 is reserved and never listening, so this fails immediately
 	// rather than waiting out the client timeout.
-	body := scrape("127.0.0.1:1")
-	if got := testutil.ToFloat64(probeSuccessGauge); got != 0 {
-		t.Errorf("probe_success = %v after a failed probe, want 0", got)
+	got := scrape(t, "127.0.0.1:1")
+	if got["probe_success"] != "0" {
+		t.Errorf("probe_success = %q after a failed probe, want 0", got["probe_success"])
+	}
+	for metric, value := range got {
+		if strings.HasPrefix(metric, "homewizard_") {
+			t.Errorf("failed probe exported %s %s", metric, value)
+		}
+	}
+}
+
+func TestConcurrentProbesKeepTargetsApart(t *testing.T) {
+	targets := map[string]string{}
+	for _, watts := range []string{"111", "222"} {
+		srv, _ := newTargetServer(t, func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = fmt.Fprintf(w, `{"active_power_w": %s}`, watts)
+		})
+		targets[hostOf(t, srv.URL)] = watts
 	}
 
-	if !strings.Contains(body, "probe_success 0") {
-		t.Errorf("failed probe did not export probe_success 0:\n%s", body)
+	var wg sync.WaitGroup
+	for range 100 {
+		for target, want := range targets {
+			wg.Go(func() {
+				if got := scrape(t, target)["homewizard_active_power_watts"]; got != want {
+					t.Errorf("probe of %s: homewizard_active_power_watts = %q, want %s", target, got, want)
+				}
+			})
+		}
 	}
+	wg.Wait()
 }
 
 func TestHandlerRejectsMissingTarget(t *testing.T) {

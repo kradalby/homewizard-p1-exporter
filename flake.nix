@@ -19,7 +19,7 @@
     }:
     let
       homewizard-p1-exporterVersion = if (self ? shortRev) then self.shortRev else "dev";
-      vendorHash = "sha256-E3kwp3exxXo/OJJ1YIxQDi5gB4WDFCRARu+tIfoK3Kg=";
+      vendorHash = "sha256-2q/Az624KXDNY8GkEAkyXD/qlr0gbbhwBRa1DBKSAWc=";
     in
     {
       overlays.default =
