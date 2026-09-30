@@ -16,74 +16,19 @@ import (
 
 var overrideListenAddr = envknob.String("HOMEWIZARD_EXPORTER_LISTEN_ADDR")
 
-var (
-	wifiStrengthGauge,
-	activePowerWattGauge,
-	activePowerL1WattGauge,
-	activePowerL2WattGauge,
-	activePowerL3WattGauge,
-	anyFailedGauge,
-	longFailedGauge,
-	totalGasGauge,
-	probeSuccessGauge,
-	probeDurationGauge prometheus.Gauge
-	registry *prometheus.Registry
-)
-
-func init() {
-	probeSuccessGauge = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "probe_success",
-		Help: "Displays whether or not the probe was a success",
-	})
-	probeDurationGauge = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "probe_duration_seconds",
-		Help: "Returns how long the probe took to complete in seconds",
-	})
-	wifiStrengthGauge = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "homewizard_wifi_strength_decibels",
-		Help: "strength of WIFI signal for homewizard in decibels",
-	})
-	activePowerWattGauge = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "homewizard_active_power_watts",
-		Help: "current (total) usage of power meassured in watts (W)",
-	})
-	activePowerL1WattGauge = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "homewizard_active_power_l1_watts",
-		Help: "current (L1) usage of power meassured in watts (w)",
-	})
-	activePowerL2WattGauge = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "homewizard_active_power_l2_watts",
-		Help: "current (L2) usage of power meassured in watts (w)",
-	})
-	activePowerL3WattGauge = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "homewizard_active_power_l3_watts",
-		Help: "current (L3) usage of power meassured in watts (w)",
-	})
-	anyFailedGauge = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "homewizard_any_power_fail_count",
-		Help: "number of power failures meassured by P1",
-	})
-	longFailedGauge = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "homewizard_long_power_fail_count",
-		Help: "number of long power failures meassured by P1",
-	})
-	totalGasGauge = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "homewizard_gas_m3_total",
-		Help: "total usage of gas reported by the gas meter in m3",
-	})
-
-	registry = prometheus.NewRegistry()
-
-	registry.MustRegister(probeSuccessGauge)
-	registry.MustRegister(probeDurationGauge)
-	registry.MustRegister(wifiStrengthGauge)
-	registry.MustRegister(activePowerWattGauge)
-	registry.MustRegister(activePowerL1WattGauge)
-	registry.MustRegister(activePowerL2WattGauge)
-	registry.MustRegister(activePowerL3WattGauge)
-	registry.MustRegister(anyFailedGauge)
-	registry.MustRegister(longFailedGauge)
-	registry.MustRegister(totalGasGauge)
+// p1Metrics maps each exported gauge to the reading it reports.
+var p1Metrics = []struct {
+	name, help string
+	value      func(P1) float64
+}{
+	{"homewizard_wifi_strength_decibels", "strength of WIFI signal for homewizard in decibels", func(p P1) float64 { return p.WifiStrength }},
+	{"homewizard_active_power_watts", "current (total) usage of power meassured in watts (W)", func(p P1) float64 { return p.ActivePowerW }},
+	{"homewizard_active_power_l1_watts", "current (L1) usage of power meassured in watts (w)", func(p P1) float64 { return p.ActivePowerL1W }},
+	{"homewizard_active_power_l2_watts", "current (L2) usage of power meassured in watts (w)", func(p P1) float64 { return p.ActivePowerL2W }},
+	{"homewizard_active_power_l3_watts", "current (L3) usage of power meassured in watts (w)", func(p P1) float64 { return p.ActivePowerL3W }},
+	{"homewizard_any_power_fail_count", "number of power failures meassured by P1", func(p P1) float64 { return p.AnyPowerFailCount }},
+	{"homewizard_long_power_fail_count", "number of long power failures meassured by P1", func(p P1) float64 { return p.LongPowerFailCount }},
+	{"homewizard_gas_m3_total", "total usage of gas reported by the gas meter in m3", func(p P1) float64 { return p.TotalGasM3 }},
 }
 
 func main() {
@@ -110,9 +55,7 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func homewizardHandler(w http.ResponseWriter, r *http.Request) {
-	params := r.URL.Query()
-
-	target := params.Get("target")
+	target := r.URL.Query().Get("target")
 	if target == "" {
 		http.Error(w, "Target parameter is missing", http.StatusBadRequest)
 		return
@@ -120,44 +63,47 @@ func homewizardHandler(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
-	r = r.WithContext(ctx)
 
 	start := time.Now()
-	success := probeHomewizard(ctx, target)
+	p1, err := probeHomewizard(ctx, target)
 	duration := time.Since(start).Seconds()
-	probeDurationGauge.Set(duration)
-	if success {
-		probeSuccessGauge.Set(1)
-		log.Printf("%s: probe succeeded, duration: %fs", target, duration)
+
+	// A registry per request: probes of different targets run concurrently
+	// and must neither share readings nor inherit them from a previous probe.
+	registry := prometheus.NewRegistry()
+	addGauge(registry, "probe_duration_seconds", "Returns how long the probe took to complete in seconds", duration)
+
+	if err != nil {
+		log.Printf("%s: probe failed, duration: %fs: %s", target, duration, err)
+		addGauge(registry, "probe_success", "Displays whether or not the probe was a success", 0)
 	} else {
-		probeSuccessGauge.Set(0)
-		log.Printf("%s: probe failed, duration: %fs", target, duration)
+		log.Printf("%s: probe succeeded, duration: %fs", target, duration)
+		addGauge(registry, "probe_success", "Displays whether or not the probe was a success", 1)
+		for _, m := range p1Metrics {
+			addGauge(registry, m.name, m.help, m.value(p1))
+		}
 	}
 
-	h := promhttp.HandlerFor(registry, promhttp.HandlerOpts{})
-	h.ServeHTTP(w, r)
+	promhttp.HandlerFor(registry, promhttp.HandlerOpts{}).ServeHTTP(w, r)
 }
 
-func probeHomewizard(
-	ctx context.Context,
-	target string,
-) (success bool) {
-	client := http.Client{
-		Timeout: 5 * time.Second,
-	}
+func addGauge(registry *prometheus.Registry, name, help string, value float64) {
+	g := prometheus.NewGauge(prometheus.GaugeOpts{Name: name, Help: help})
+	g.Set(value)
+	registry.MustRegister(g)
+}
 
+func probeHomewizard(ctx context.Context, target string) (P1, error) {
 	url := fmt.Sprintf("http://%s/api/v1/data", target)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		log.Printf("failed to build request for homewizard target (%s): %s", target, err)
-		return false
+		return P1{}, fmt.Errorf("building request: %w", err)
 	}
 
-	resp, err := client.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		log.Printf("failed to query homewizard target (%s): %s", target, err)
-		return false
+		return P1{}, fmt.Errorf("querying target: %w", err)
 	}
 	// Close before inspecting the status: the non-200 path used to return
 	// without ever touching the body, leaking a connection, an fd and a
@@ -167,26 +113,15 @@ func probeHomewizard(
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("homewizard target (%s) returned status: %s", target, resp.Status)
-		return false
+		return P1{}, fmt.Errorf("target returned %s", resp.Status)
 	}
 
 	var p1 P1
 	if err := json.NewDecoder(resp.Body).Decode(&p1); err != nil {
-		log.Printf("failed to unmarshall data from homewizard target (%s): %s", target, err)
-		return false
+		return P1{}, fmt.Errorf("decoding response: %w", err)
 	}
 
-	wifiStrengthGauge.Set(p1.WifiStrength)
-	activePowerWattGauge.Set(p1.ActivePowerW)
-	activePowerL1WattGauge.Set(p1.ActivePowerL1W)
-	activePowerL2WattGauge.Set(p1.ActivePowerL2W)
-	activePowerL3WattGauge.Set(p1.ActivePowerL3W)
-	anyFailedGauge.Set(p1.AnyPowerFailCount)
-	longFailedGauge.Set(p1.LongPowerFailCount)
-	totalGasGauge.Set(p1.TotalGasM3)
-
-	return true
+	return p1, nil
 }
 
 type P1 struct {
