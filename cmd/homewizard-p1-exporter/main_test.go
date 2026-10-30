@@ -20,7 +20,11 @@ const p1Body = `{
   "active_power_l3_w": 423.5,
   "any_power_fail_count": 3,
   "long_power_fail_count": 1,
-  "total_gas_m3": 987.654
+  "total_gas_m3": 987.654,
+  "total_power_import_t1_kwh": 6263.426,
+  "total_power_import_t2_kwh": 5313.445,
+  "total_power_export_t1_kwh": 12.5,
+  "total_power_export_t2_kwh": 7.25
 }`
 
 // hostOf strips the scheme so the result can be fed to probeHomewizard, which
@@ -114,6 +118,36 @@ func TestHandlerExportsReadings(t *testing.T) {
 	}
 	if _, ok := got["probe_duration_seconds"]; !ok {
 		t.Error("probe_duration_seconds not exported")
+	}
+}
+
+// Cost is computed from these registers, so they must be real counters, one
+// series per tariff: only the sum of the tariffs is the meter's total.
+func TestHandlerExportsEnergyCountersByTariff(t *testing.T) {
+	srv, _ := newTargetServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprint(w, p1Body)
+	})
+
+	got := scrape(t, hostOf(t, srv.URL))
+
+	for metric, want := range map[string]string{
+		`homewizard_energy_import_kwh_total{tariff="1"}`: "6263.426",
+		`homewizard_energy_import_kwh_total{tariff="2"}`: "5313.445",
+		`homewizard_energy_export_kwh_total{tariff="1"}`: "12.5",
+		`homewizard_energy_export_kwh_total{tariff="2"}`: "7.25",
+	} {
+		if got[metric] != want {
+			t.Errorf("%s = %q, want %s", metric, got[metric], want)
+		}
+	}
+
+	rec := httptest.NewRecorder()
+	homewizardHandler(rec, httptest.NewRequest(http.MethodGet, "/probe?target="+url.QueryEscape(hostOf(t, srv.URL)), nil))
+
+	for _, name := range []string{"homewizard_energy_import_kwh_total", "homewizard_energy_export_kwh_total"} {
+		if want := "# TYPE " + name + " counter"; !strings.Contains(rec.Body.String(), want) {
+			t.Errorf("response has no %q", want)
+		}
 	}
 }
 

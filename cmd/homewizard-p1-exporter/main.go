@@ -31,6 +31,23 @@ var p1Metrics = []struct {
 	{"homewizard_gas_m3_total", "total usage of gas reported by the gas meter in m3", func(p P1) float64 { return p.TotalGasM3 }},
 }
 
+const (
+	importHelp = "total energy imported from the grid in kWh, by meter tariff"
+	exportHelp = "total energy exported to the grid in kWh, by meter tariff"
+)
+
+// p1EnergyRegisters maps each cumulative meter register to its counter series.
+// Summing the tariffs gives the meter's total, so no total is exported.
+var p1EnergyRegisters = []struct {
+	name, help, tariff string
+	value              func(P1) float64
+}{
+	{"homewizard_energy_import_kwh_total", importHelp, "1", func(p P1) float64 { return p.TotalPowerImportT1Kwh }},
+	{"homewizard_energy_import_kwh_total", importHelp, "2", func(p P1) float64 { return p.TotalPowerImportT2Kwh }},
+	{"homewizard_energy_export_kwh_total", exportHelp, "1", func(p P1) float64 { return p.TotalPowerExportT1Kwh }},
+	{"homewizard_energy_export_kwh_total", exportHelp, "2", func(p P1) float64 { return p.TotalPowerExportT2Kwh }},
+}
+
 func main() {
 	http.HandleFunc("/health", healthHandler)
 	http.HandleFunc("/probe", homewizardHandler)
@@ -82,6 +99,9 @@ func homewizardHandler(w http.ResponseWriter, r *http.Request) {
 		for _, m := range p1Metrics {
 			addGauge(registry, m.name, m.help, m.value(p1))
 		}
+		for _, r := range p1EnergyRegisters {
+			addTariffCounter(registry, r.name, r.help, r.tariff, r.value(p1))
+		}
 	}
 
 	promhttp.HandlerFor(registry, promhttp.HandlerOpts{}).ServeHTTP(w, r)
@@ -91,6 +111,14 @@ func addGauge(registry *prometheus.Registry, name, help string, value float64) {
 	g := prometheus.NewGauge(prometheus.GaugeOpts{Name: name, Help: help})
 	g.Set(value)
 	registry.MustRegister(g)
+}
+
+func addTariffCounter(registry *prometheus.Registry, name, help, tariff string, value float64) {
+	registry.MustRegister(prometheus.NewCounterFunc(prometheus.CounterOpts{
+		Name:        name,
+		Help:        help,
+		ConstLabels: prometheus.Labels{"tariff": tariff},
+	}, func() float64 { return value }))
 }
 
 func probeHomewizard(ctx context.Context, target string) (P1, error) {
