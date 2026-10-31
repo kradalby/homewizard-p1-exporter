@@ -48,6 +48,35 @@ var p1EnergyRegisters = []struct {
 	{"homewizard_energy_export_kwh_total", exportHelp, "2", func(p P1) float64 { return p.TotalPowerExportT2Kwh }},
 }
 
+const (
+	voltageHelp = "active voltage per phase in volts"
+	sagHelp     = "voltage sags counted by the meter, per phase"
+	swellHelp   = "voltage swells counted by the meter, per phase"
+)
+
+// p1PhaseGauges and p1PhaseCounters map per-phase readings to their series.
+var (
+	p1PhaseGauges = []struct {
+		name, help, phase string
+		value             func(P1) float64
+	}{
+		{"homewizard_voltage_volts", voltageHelp, "l1", func(p P1) float64 { return p.ActiveVoltageL1V }},
+		{"homewizard_voltage_volts", voltageHelp, "l2", func(p P1) float64 { return p.ActiveVoltageL2V }},
+		{"homewizard_voltage_volts", voltageHelp, "l3", func(p P1) float64 { return p.ActiveVoltageL3V }},
+	}
+	p1PhaseCounters = []struct {
+		name, help, phase string
+		value             func(P1) float64
+	}{
+		{"homewizard_voltage_sags_total", sagHelp, "l1", func(p P1) float64 { return p.VoltageSagL1Count }},
+		{"homewizard_voltage_sags_total", sagHelp, "l2", func(p P1) float64 { return p.VoltageSagL2Count }},
+		{"homewizard_voltage_sags_total", sagHelp, "l3", func(p P1) float64 { return p.VoltageSagL3Count }},
+		{"homewizard_voltage_swells_total", swellHelp, "l1", func(p P1) float64 { return p.VoltageSwellL1Count }},
+		{"homewizard_voltage_swells_total", swellHelp, "l2", func(p P1) float64 { return p.VoltageSwellL2Count }},
+		{"homewizard_voltage_swells_total", swellHelp, "l3", func(p P1) float64 { return p.VoltageSwellL3Count }},
+	}
+)
+
 func main() {
 	http.HandleFunc("/health", healthHandler)
 	http.HandleFunc("/probe", homewizardHandler)
@@ -100,7 +129,13 @@ func homewizardHandler(w http.ResponseWriter, r *http.Request) {
 			addGauge(registry, m.name, m.help, m.value(p1))
 		}
 		for _, r := range p1EnergyRegisters {
-			addTariffCounter(registry, r.name, r.help, r.tariff, r.value(p1))
+			addLabeledCounter(registry, r.name, r.help, "tariff", r.tariff, r.value(p1))
+		}
+		for _, r := range p1PhaseGauges {
+			addLabeledGauge(registry, r.name, r.help, "phase", r.phase, r.value(p1))
+		}
+		for _, r := range p1PhaseCounters {
+			addLabeledCounter(registry, r.name, r.help, "phase", r.phase, r.value(p1))
 		}
 	}
 
@@ -113,12 +148,22 @@ func addGauge(registry *prometheus.Registry, name, help string, value float64) {
 	registry.MustRegister(g)
 }
 
-func addTariffCounter(registry *prometheus.Registry, name, help, tariff string, value float64) {
+func addLabeledCounter(registry *prometheus.Registry, name, help, label, labelValue string, value float64) {
 	registry.MustRegister(prometheus.NewCounterFunc(prometheus.CounterOpts{
 		Name:        name,
 		Help:        help,
-		ConstLabels: prometheus.Labels{"tariff": tariff},
+		ConstLabels: prometheus.Labels{label: labelValue},
 	}, func() float64 { return value }))
+}
+
+func addLabeledGauge(registry *prometheus.Registry, name, help, label, labelValue string, value float64) {
+	g := prometheus.NewGauge(prometheus.GaugeOpts{
+		Name:        name,
+		Help:        help,
+		ConstLabels: prometheus.Labels{label: labelValue},
+	})
+	g.Set(value)
+	registry.MustRegister(g)
 }
 
 func probeHomewizard(ctx context.Context, target string) (P1, error) {

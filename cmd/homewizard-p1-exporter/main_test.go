@@ -21,10 +21,19 @@ const p1Body = `{
   "any_power_fail_count": 3,
   "long_power_fail_count": 1,
   "total_gas_m3": 987.654,
-  "total_power_import_t1_kwh": 6263.426,
-  "total_power_import_t2_kwh": 5313.445,
+  "total_power_import_t1_kwh": 1000.5,
+  "total_power_import_t2_kwh": 2000.25,
   "total_power_export_t1_kwh": 12.5,
-  "total_power_export_t2_kwh": 7.25
+  "total_power_export_t2_kwh": 7.25,
+  "active_voltage_l1_v": 231.5,
+  "active_voltage_l2_v": 232,
+  "active_voltage_l3_v": 233,
+  "voltage_sag_l1_count": 4,
+  "voltage_sag_l2_count": 5,
+  "voltage_sag_l3_count": 6,
+  "voltage_swell_l1_count": 1,
+  "voltage_swell_l2_count": 2,
+  "voltage_swell_l3_count": 3
 }`
 
 // hostOf strips the scheme so the result can be fed to probeHomewizard, which
@@ -131,8 +140,8 @@ func TestHandlerExportsEnergyCountersByTariff(t *testing.T) {
 	got := scrape(t, hostOf(t, srv.URL))
 
 	for metric, want := range map[string]string{
-		`homewizard_energy_import_kwh_total{tariff="1"}`: "6263.426",
-		`homewizard_energy_import_kwh_total{tariff="2"}`: "5313.445",
+		`homewizard_energy_import_kwh_total{tariff="1"}`: "1000.5",
+		`homewizard_energy_import_kwh_total{tariff="2"}`: "2000.25",
 		`homewizard_energy_export_kwh_total{tariff="1"}`: "12.5",
 		`homewizard_energy_export_kwh_total{tariff="2"}`: "7.25",
 	} {
@@ -146,6 +155,38 @@ func TestHandlerExportsEnergyCountersByTariff(t *testing.T) {
 
 	for _, name := range []string{"homewizard_energy_import_kwh_total", "homewizard_energy_export_kwh_total"} {
 		if want := "# TYPE " + name + " counter"; !strings.Contains(rec.Body.String(), want) {
+			t.Errorf("response has no %q", want)
+		}
+	}
+}
+
+func TestHandlerExportsPhaseReadings(t *testing.T) {
+	srv, _ := newTargetServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprint(w, p1Body)
+	})
+
+	got := scrape(t, hostOf(t, srv.URL))
+
+	for metric, want := range map[string]string{
+		`homewizard_voltage_volts{phase="l1"}`:        "231.5",
+		`homewizard_voltage_volts{phase="l3"}`:        "233",
+		`homewizard_voltage_sags_total{phase="l2"}`:   "5",
+		`homewizard_voltage_swells_total{phase="l3"}`: "3",
+	} {
+		if got[metric] != want {
+			t.Errorf("%s = %q, want %s", metric, got[metric], want)
+		}
+	}
+
+	rec := httptest.NewRecorder()
+	homewizardHandler(rec, httptest.NewRequest(http.MethodGet, "/probe?target="+url.QueryEscape(hostOf(t, srv.URL)), nil))
+
+	for _, want := range []string{
+		"# TYPE homewizard_voltage_volts gauge",
+		"# TYPE homewizard_voltage_sags_total counter",
+		"# TYPE homewizard_voltage_swells_total counter",
+	} {
+		if !strings.Contains(rec.Body.String(), want) {
 			t.Errorf("response has no %q", want)
 		}
 	}
